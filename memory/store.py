@@ -17,11 +17,13 @@ class MemoryRecord:
 
     memory_id: str
     frame_path: str
+    thumbnail_path: str
     source_path: str
     timestamp_sec: float | None
     routine_hour: int | None
     structural_embedding_path: str
     semantic_embedding_path: str
+    category: str | None = None
 
 
 def memory_root() -> str:
@@ -43,6 +45,7 @@ def write_memory(
     structural_embedding: np.ndarray,
     semantic_embedding: np.ndarray,
     routine_hour: int | None,
+    category: str | None = None,
 ) -> MemoryRecord:
     """Persist one confident novel memory with DINOv2 and CLIP embeddings."""
     config.MEMORY_EMBEDDINGS_DIR.mkdir(parents=True, exist_ok=True)
@@ -54,11 +57,34 @@ def write_memory(
     record = MemoryRecord(
         memory_id=memory_id,
         frame_path=str(frame_record["frame_path"]),
+        thumbnail_path=str(frame_record["frame_path"]),
         source_path=str(frame_record.get("source_path", "")),
         timestamp_sec=frame_record.get("timestamp_sec"),
         routine_hour=routine_hour,
         structural_embedding_path=str(structural_path.relative_to(config.ROOT_DIR)),
         semantic_embedding_path=str(semantic_path.relative_to(config.ROOT_DIR)),
+        category=category,
     )
     append_jsonl(config.MEMORY_RECORDS_PATH, asdict(record))
     return record
+
+
+def read_memory(memory_id: str) -> tuple[MemoryRecord, np.ndarray, np.ndarray]:
+    """Read one memory record and its stored DINOv2/CLIP embeddings."""
+    if not config.MEMORY_RECORDS_PATH.exists():
+        raise FileNotFoundError(f"Missing memory index: {config.MEMORY_RECORDS_PATH}")
+
+    found: dict[str, object] | None = None
+    with config.MEMORY_RECORDS_PATH.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            payload = json.loads(line)
+            if payload["memory_id"] == memory_id:
+                found = payload
+
+    if found is None:
+        raise KeyError(f"Memory id not found: {memory_id}")
+
+    record = MemoryRecord(**found)
+    structural = np.load(config.ROOT_DIR / record.structural_embedding_path)
+    semantic = np.load(config.ROOT_DIR / record.semantic_embedding_path)
+    return record, structural, semantic
