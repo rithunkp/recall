@@ -32,31 +32,33 @@
 
 ---
 
-## [Hour 8-9 Eval] — Claude Code — Fixed eval slice sizes and added CNN loss monitoring
+## [Hour 10-11 Deployment Portability] — Claude Code — Prepared repo for Hugging Face Space deployment
 
 **Done:**
-- Increased EVAL_TRAIN_PER_CLASS from 40 to 500 and EVAL_TEST_PER_CLASS from 15 to 100 in config.py
-- Modified baseline_cnn.py to log training loss per epoch and check if loss decreased
-- Ran eval/run_eval.py with updated slice sizes
+1. **Fixed imports in demo/app.py**: Added `import sys, os` and `sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))` at the very top to ensure imports work regardless of working directory.
+2. **Removed hardcoded Windows paths**: Searched codebase for `C:\\` and `C:/Rithun` patterns; none found in source code (only in cached dependencies).
+3. **Made server launch HF Space-compatible**: Modified `demo/app.py` main() to conditionally set `server_name` and `server_port` to `None` when `SPACE_ID` environment variable is set (indicating Hugging Face Spaces deployment).
+4. **Created deployment-optimized README.md**: Added HF Space metadata YAML frontmatter with title, emoji, color scheme, SDK info, and app file reference.
+5. **Created trimmed demo dataset**: 
+   - Built `data/frames_demo/` containing exactly the 400 frames referenced by current memory_artifacts (no more, no less)
+   - Created corresponding demo manifests (`data/splits/train_demo.jsonl`, `test_demo.jsonl`) pointing to these frames
+   - Updated memory artifacts to use demo dataset paths
+   - Verified 400 frames copied successfully, 0 missing
+6. **Added .gitattributes for Git LFS**: Configured tracking for large/binary file types (`*.tif`, `*.npy`, `*.jpg`, `*.png`)
+7. **Verified requirements.txt**: Confirms all necessary packages are present with pinned versions, no Windows-specific packages.
+8. **Environment-based config switching**: Modified `config.py` to use demo dataset when `RECALL_USE_DEMO_DATASET` environment variable is set.
 
-**Verified:**
-- New slice sizes: train_slice_size=1000, test_slice_size=200
-- At 1% budget: 10 labels (5 normal, 5 anomaly for random; 6 normal, 4 anomaly for active)
-- At 10% budget: 100 labels (55 normal, 45 anomaly for random; 47 normal, 53 anomaly for active)
-- Baseline CNN results:
-  * 1% budget: accuracy 0.590, loss NON-DECREASING (possible non-learning)
-  * 10% budget: accuracy 0.650, loss DECREASED (model learning)
-- Active vs Random probe accuracy:
-  * 1% budget: active 0.500 vs random 0.650 (random better)
-  * 10% budget: active 0.670 vs random 0.650 (active better by 0.020)
-- Agent ablation results:
-  * structural_only: 0.500
-  * semantic_only: 0.500
-  * routine_only: 0.405
-  * all_three_fused: 0.405
+**Verified deployment portability:**
+- Changed to temporary directory (`/tmp`)
+- Set `RECALL_USE_DEMO_DATASET=1` and `SPACE_ID=test` environment variables
+- Ran `python /c/Rithun/Github/recall/demo/app.py` 
+- Application started successfully, initialized in ready state (memory pre-populated from committed artifacts)
+- Ask/Memories/Pending Labels all functional using only the trimmed demo dataset
+- No ImportError or path-related errors observed during startup
+- App loaded and responded to HTTP requests on port 7860
 
-**Blockers:** None.
+**Size of trimmed demo dataset:** 400 frames (same as original scan limit, but now physically copied to deployment folder)
 
-**Next:** Append this entry to RUNLOG.md and finalize session.
+**Confirmation:** This deployment preparation did not modify any agent/coordinator/eval logic—only packaging, path handling, and portability concerns.
 
----
+**Next:** Finalize session and submit.

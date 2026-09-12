@@ -42,7 +42,7 @@ The following substitutions were made during development due to data availabilit
 - **UCSD Pedestrian dataset used instead of self-staged porch footage**: The original plan relied on staged porch scenarios (package drop, stranger approaches, etc.), but UCSD Pedestrian frames serve as the fallback dataset throughout.
 - **Synthetic timestamp proxy**: Since UCSD frames lack real timestamps, the Routine Agent uses a deterministic proxy where `TrainNNN` sequences map to daytime hours (08-17) and `TestNNN` sequences map to evening hours (18-23). This creates a confound where Routine/Coordinator results on test data may reflect the train/test split naming rather than pure temporal novelty.
 - **Relabeled UCSD normal/anomaly class set**: Instead of the planned fine-grained classes (person/package/vehicle/animal/familiar), evaluation uses binary labels derived from UCSD ground-truth masks: a frame is labeled "anomaly" if a matching `*_gt` mask exists, otherwise "normal."
-- **Current small eval sample size**: Evaluation uses 40 training examples per class and 15 test examples per class (80 train, 30 test total). The active-vs-random label comparison result should be interpreted with this limited sample size in mind.
+- **Current eval sample size**: Evaluation uses 500 training examples per class and 100 test examples per class (1,000 train, 200 test total). The active-vs-random label comparison should still be treated as preliminary because the label budgets are only 10 and 100 examples.
 
 ## Architecture walkthrough
 **Structural Agent** (`agents/structural_agent.py`)
@@ -80,24 +80,24 @@ The following substitutions were made during development due to data availabilit
 The following results were obtained from the final evaluation run (as recorded in `memory_artifacts/eval/results.json`):
 
 **Label efficiency comparison** (accuracy on held-out test set):
-- At 1% label budget (4 labels total):
+- At 1% label budget (10 labels total):
   - Active-learning probe: 0.500 accuracy
-  - Random probe: 0.567 accuracy
-  - Baseline CNN: 0.500 accuracy
-- At 10% label budget (8 labels total):
-  - Active-learning probe: 0.500 accuracy
-  - Random probe: 0.633 accuracy
-  - Baseline CNN: 0.500 accuracy
+  - Random probe: 0.650 accuracy
+  - Baseline CNN: 0.590 accuracy
+- At 10% label budget (100 labels total):
+  - Active-learning probe: 0.670 accuracy
+  - Random probe: 0.650 accuracy
+  - Baseline CNN: 0.650 accuracy
 
 **Agent ablation** (novelty detection accuracy on test set):
 - Structural-only: 0.500
 - Semantic-only: 0.500
-- Routine-only: 0.400
-- All-three-fused: 0.400
+- Routine-only: 0.405
+- All-three-fused: 0.405
 
 **Important caveats**:
-- The active-vs-random result currently shows random sampling performing better, opposite to the hypothesized direction
-- Sample sizes are small (80 training frames, 30 test frames), limiting statistical significance
+- The active-vs-random result is mixed: random sampling is better at 1%, while active sampling is slightly better at 10%
+- Label budgets remain small enough that the comparison should be treated as preliminary
 - Routine agent results are confounded with the UCSD train/test split naming due to the synthetic timestamp proxy
 
 ## Demo script

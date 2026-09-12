@@ -1,229 +1,332 @@
-# PROJECT_STATE.md — Recall
+# PROJECT_STATE.md - Recall
 
-> Read this whole file before writing any code. This is the single source of truth for the
-> 8-hour Deep Learning Hackathon build. If anything here is ambiguous, ask before guessing —
-> especially around the train/test split and the mandatory baseline.
+Read this file before changing the repo. It is the current source of truth for the
+architecture, constraints, dataset substitutions, reproducibility path, demo flow, and
+evaluation results.
 
 ---
 
-## 1. Title & Pitch
+## 1. Project Summary
 
-**Recall — A Multi-Agent Perception System That Decides What's Worth Remembering**
+**Recall - A Multi-Agent Perception System That Decides What's Worth Remembering**
 
-A doorstep camera with no labeled training data, built from three independent perception
-agents that vote on what counts as "novel," request a human label only when they disagree,
-and let you query what happened in plain English.
+Recall is a self-supervised perception prototype for camera streams. It uses three frozen
+or label-free agents to decide whether a frame is familiar, ambiguous, or novel. Familiar
+frames are discarded, confident novel frames are stored as memories, and ambiguous frames
+are queued for active learning instead of being guessed. Stored memories can then be queried
+with natural language using CLIP-text retrieval.
 
-## 2. Track
+The product story is a doorstep/security camera that does not save everything and does not
+fire on every bit of routine motion. The system only remembers events the agents confidently
+agree are novel, and it asks for human help only on disagreement cases.
 
-**Track 4 — Self-Supervised & Representation Learning**
+## 2. Track And Rules
 
-- Scoped problem: learn a representation, then evaluate it under a fixed label budget.
-- Mandatory baseline: supervised CNN trained from scratch on the identical random 1%/10%
-  labeled subset.
-- Primary metric: downstream classification accuracy at each fixed label budget.
+**Track 4 - Self-Supervised & Representation Learning**
 
-## 3. Problem Statement
+Core rule commitments:
+- `seed=42` is centralized in `config.py`.
+- DINOv2 and CLIP remain frozen throughout.
+- The only trained models are the eval-stage linear probe and scratch CNN baseline.
+- Test split is not used for threshold tuning or upstream design decisions.
+- `run.sh` is the one-command backend reproducibility path.
+- Eval numbers are reported honestly, including negative or weak results.
 
-Doorbell/porch cameras record everything and surface nothing. Two concrete failures with
-today's cameras motivate this project:
+## 3. Actual Dataset
 
-1. **Motion-trigger cameras fail in high-motion scenes.** A camera facing a road, a
-   sidewalk, or blowing trees triggers constantly on background motion that is completely
-   ordinary, so the "motion detected" signal stops being informative exactly where it's
-   needed most.
-2. **Storage blow-up.** Recording continuously (or on every motion trigger) wastes storage
-   on hours of nothing, making local storage impractical and cloud storage expensive.
+Original target data was self-staged porch footage with categories such as package,
+stranger, familiar person, pet, vehicle, empty porch, off-hours visit, and road-like
+background motion.
 
-Supervised event detectors ("package," "stranger," "pet") would fix the false-positive
-problem, but need thousands of labeled clips per household — a dataset that doesn't exist
-and isn't worth building per-porch. Recall's bet: you don't need labels to know something is
-*novel*; you only need labels for the rare cases where your novelty signals disagree.
+Actual hackathon dataset:
+- **UCSD Pedestrian** fallback frames are used instead of self-staged porch footage.
+- Prepared frame manifests exist under `data/splits/`.
+- UCSD `_gt` mask directories are excluded from normal frame manifests.
+- The Gradio/Hugging Face demo uses a tracked lightweight frame subset under
+  `data/frames_demo/` when the full local `data/frames/` tree is unavailable.
+
+Important limitation:
+- UCSD does not provide the planned porch categories, so final eval uses binary
+  `normal / anomaly` labels derived from UCSD ground-truth masks.
 
 ## 4. Architecture
 
-### 4.1 Perception layer — three independent agents, each scoring novelty its own way
+### Structural Agent - `agents/structural_agent.py`
 
-| Agent | Signal | How it scores novelty |
-|---|---|---|
-| **Structural Agent** | Frozen **DINOv2** | Embeds each frame, compares against stored prototype embeddings (cosine/L2 distance). Flags raw visual/structural deviation — catches things that just *look* different, independent of category. |
-| **Semantic Agent** | Frozen **CLIP** | Embeds each frame in joint image-text space, flags category-level deviation ("this doesn't look like anything I've filed as familiar"). |
-| **Routine Agent** | Self-supervised temporal model | Rolling point-process/histogram over event timestamps, learned with **zero labels**. Scores *when* something happens, not what it looks like — a person at 3am is novel even if they'd be unremarkable at 3pm. This is the agent that directly solves the "camera facing a road" failure mode: constant daytime traffic gets learned as routine and stops triggering, while an off-hours event still fires. |
+Uses frozen DINOv2 image embeddings:
+- Model: `facebook/dinov2-small`
+- Embedding size: 384
+- Train-only prototype bank path:
+  `memory_artifacts/embeddings/structural/prototypes.npy`
+- Prototype bank shape verified earlier: `(256, 384)`
+- Novelty score: distance from nearest train prototype.
 
-### 4.2 Coordinator
+### Semantic Agent - `agents/semantic_agent.py`
 
-Fuses the three scores (weighted vote or simple rule, e.g. majority-of-three with tunable
-per-agent weight/threshold).
+Uses frozen CLIP image embeddings:
+- Model: `openai/clip-vit-base-patch32`
+- Embedding size: 512
+- Train-only prototype bank path:
+  `memory_artifacts/embeddings/semantic/prototypes.npy`
+- Prototype bank shape verified earlier: `(256, 512)`
+- Novelty score: cosine distance from nearest train prototype.
 
-- **Strong agreement** → confident decision, write to memory or discard (this is where the
-  storage savings comes from: only novel events get a persisted memory).
-- **Disagreement** → routed to active learning instead of guessed at.
+### Routine Agent - `agents/routine_agent.py`
 
-### 4.3 Active learning loop
+Uses a label-free hourly histogram over timestamp-like metadata:
+- Stats path: `memory_artifacts/routine/hourly_stats.json`
+- UCSD frames do not contain real wall-clock timestamps.
+- Synthetic timestamp proxy:
+  - UCSD `TrainNNN` sources map to daytime hours `08-17`.
+  - UCSD `TestNNN` sources map to evening hours `18-23`.
 
-Coordinator disagreement = an explicit uncertainty query. The system asks for **one** human
-label on exactly the ambiguous case, folds it into the prototype set, and moves on. This
-replaces random 1%/10% label sampling with **uncertainty-driven sampling** — this is the
-actual research claim of the project, not just an eval protocol.
+Important limitation:
+- The Routine Agent signal is partly confounded with UCSD source/split naming because
+  evening hours are tied to test-source sequence names. Do not describe Routine ablation
+  performance as a clean temporal win.
 
-### 4.4 Memory + retrieval
+### Coordinator - `coordinator/fuse.py`
 
-Each stored memory keeps: DINOv2 embedding, CLIP embedding, thumbnail, timestamp. A typed
-question is CLIP-text-encoded and matched via nearest-neighbor search against stored
-memories — **pure retrieval, no generation**, so no hallucinated answers.
+Fuses the three novelty votes:
+- Each agent score is thresholded using constants from `config.py`.
+- Unanimous familiar -> confident familiar, discard.
+- Unanimous novel -> confident novel, write memory.
+- Split 2-1 votes -> ambiguous, append a pending active-learning request.
 
-### 4.5 Explainability (stretch goal, only if time remains)
+This intentionally treats 2-1 as ambiguous rather than confident majority because the demo
+goal is to show active learning when agents disagree.
 
-Attention rollout over DINOv2's patch attention, shown alongside any flagged event — a "why
-was this novel" heatmap next to every memory.
+### Active Learning - `coordinator/active_learning.py`
 
-## 5. Evaluation Plan (Track 4 requirement)
+Currently stores pending label requests only:
+- Queue path: `memory_artifacts/active_learning/pending_labels.jsonl`
+- The Gradio UI can select a label for a pending row, but there is no backend function yet
+  that folds that label into prototypes/stats. The UI reports that honestly and does not
+  invent an update path.
 
-Label a small slice of collected events into a few classes: `person / package / vehicle /
-animal / familiar`.
+### Memory Store - `memory/store.py`
 
-Compare, at matched label budgets (e.g. 1% and 10%):
+Confident novel frames write:
+- JSONL metadata at `memory_artifacts/records.jsonl`
+- DINOv2 `.npy` embedding
+- CLIP `.npy` embedding
+- thumbnail/frame reference
+- timestamp or synthetic routine hour
+- optional category only when one is actually attached
 
-1. Linear probe on frozen DINOv2 embeddings, trained on labels chosen by the **active-learning
-   loop**.
-2. Same linear probe, trained on the same number of **randomly** chosen labels (ablation —
-   isolates the value of active sampling, not the mandatory baseline).
-3. **Mandatory baseline**: supervised CNN trained from scratch on the identical random
-   1%/10% slice.
+### Retrieval - `memory/retrieve.py`
 
-- **Primary metric**: downstream classification accuracy at each fixed label budget, vs. the
-  scratch-CNN baseline.
-- **Secondary claim (the actual novel result)**: active-sampled labels beat randomly-sampled
-  labels at the same budget.
+Pure retrieval, no generation:
+- CLIP text-encodes the typed question.
+- Brute-force cosine search over stored CLIP memory embeddings.
+- Returns only the single best match if similarity clears
+  `RETRIEVAL_SIMILARITY_THRESHOLD = 0.20`.
+- Otherwise returns `No matching event found.`
+- Answer text is templated and only includes stored facts.
 
-### Ablations
+## 5. Demo App
 
-- Structural-only vs. semantic-only vs. routine-only vs. all-three-fused → which signal(s)
-  actually drive correct novelty decisions.
-- Active-learning label selection vs. random selection, at matched budget.
+Gradio app:
+- Entry point: `demo/app.py`
+- Hugging Face README metadata points to `app_file: demo/app.py`.
 
-## 6. Dataset
+Tabs:
+- **Scan**: one-button setup flow, **Build Recall's Memory**.
+- **Ask**: natural-language query box wired directly to `MemoryRetriever.retrieve()`.
+- **Memories**: gallery of stored memory records with TIFF-to-PNG thumbnail conversion.
+- **Pending Labels**: displays active-learning disagreement queue.
 
-Self-staged footage — no public dataset covers this exact combination, and staging gives
-full control for both training and live demo.
+Scan behavior:
+- Uses `SCAN_FULL_DATASET_LIMIT = 400`.
+- Samples deterministically with `seed=42` across both UCSD train-source and test-source
+  sequences.
+- Streams progress as a Gradio generator:
+  `frames processed / total`, plus running counts for Familiar, Ambiguous, Novel.
+- Writes `memory_artifacts/scan_complete.json` when the configured demo scan completes.
+- On relaunch, if the marker exists for the current limit, the app starts in ready state and
+  orders Ask first.
+- Ask matches also flag the matched memory as `Last matched` in the Memories gallery.
 
-**Scenarios to record** (repeat each a few times, varied lighting/angle if possible):
-- Package drop
-- Stranger approaches
-- Familiar face
-- Pet crossing frame
-- Empty porch (long stretches — this is most of the data, as in real life)
-- Off-hours visit (night/early morning)
-- High-motion background clip(s) simulating "camera facing a road" (cars, foliage) — needed
-  to demonstrate the Routine Agent's advantage over naive motion triggers
+Verified UI flow:
+- Clean temp-artifact scan with the configured 400-frame demo limit completed:
+  `336 familiar`, `64 ambiguous`, `0 novel`.
+- Relaunch marker behavior reported ready without rescanning.
+- Existing real memory callback showed `1 memory`.
+- Existing pending-label callback showed `28` rows.
+- Query `pedestrians walking on a walkway` matched `smoke_memory_val_001` with similarity
+  `0.2976` and flagged it as `Last matched`.
+- Local Gradio server returned HTTP `200`.
+- Browser-control clicking was blocked by a local computer-use plugin path error, so tab
+  verification was done through real callbacks plus HTTP server response.
 
-**Splits**: fixed train / val / test, `seed=42`. Test split is touched exactly once, at the
-end, for the final reported number — never for tuning agent thresholds, coordinator weights,
-or the linear probe.
+## 6. Reproducibility
 
-**Fallback if no camera/footage time**: use a handful of public short video clips or a
-webcam recording session as a stand-in; the pipeline and eval protocol don't depend on the
-footage being literally your porch, only on having the six scenario categories represented.
+Install:
 
-## 7. Rules Compliance Checklist
-
-- [ ] Same team as course project (or solo if project was solo)
-- [ ] One submitting lead owns repo + upload
-- [ ] `seed=42` everywhere (data split, agent thresholds if learned, linear probe, baseline
-      CNN)
-- [ ] Repo runs end-to-end with **one command**
-- [ ] Train only on train split; test split touched once, at the end
-- [ ] Baseline (scratch CNN) implemented and reported against
-- [ ] Report ≤ 4 pages: problem · method · results table (with baseline) · one ablation ·
-      limitations
-- [ ] Demo recorded
-- [ ] Every dataset / pretrained weight / reference snippet cited in the report
-- [ ] No fabricated numbers, no lucky-seed cherry-picking, honest negative results reported
-      if that's what happens
-
-## 8. Judging Criteria Mapping
-
-| Criterion | Weight | How Recall addresses it |
-|---|---|---|
-| Problem quality | 20% | Concrete, named failure mode (motion-trigger false positives + storage cost) with a specific mechanism (Routine Agent) that fixes it |
-| Beats mandatory baseline | 20% | Linear probe (active-sampled) vs. scratch CNN at 1%/10% |
-| Depth of solution | 20% | Three-agent fusion + active-learning coordinator, not a single classifier |
-| Experimental rigor | 15% | Fixed splits, seed=42, ablation across agents and sampling strategy |
-| Originality of implementation | 15% | Uncertainty-driven active learning in place of random subset sampling is the explicit research claim |
-| Demo / presentation | 10% | Live query demo ("show me when the delivery happened") over the retrieval index |
-
-## 9. Tech Stack
-
-- **Language**: Python 3.11
-- **Frameworks**: PyTorch, `transformers` (or `timm`) for DINOv2, `open_clip` or
-  `transformers` CLIPModel for CLIP
-- **Vector search**: brute-force cosine similarity to start (dataset is small); swap to
-  FAISS only if retrieval is visibly slow
-- **Video/frame handling**: OpenCV / `decord` for frame extraction
-- **Storage**: memories as JSON + `.npy` embeddings, or a single SQLite file — keep it
-  simple, no external DB
-- **UI (optional, only if time allows)**: a small Gradio or Streamlit app for the query demo;
-  a CLI is a perfectly fine fallback
-- **Repro**: `requirements.txt` pinned, single `run.sh` / `make all` entry point, `seed=42`
-  set in one config file imported everywhere
-
-## 10. Repo Structure
-
+```bash
+python -m venv .venv
+source .venv/bin/activate  # Windows PowerShell: .\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
 ```
+
+Run the backend pipeline:
+
+```bash
+bash run.sh
+```
+
+`run.sh` performs:
+1. data preparation if manifests are missing
+2. Structural Agent prototype/scoring path
+3. Semantic Agent prototype/scoring path
+4. Routine Agent stats/scoring path
+5. Coordinator pass
+6. DINOv2/CLIP smoke test
+
+Run the Gradio demo:
+
+```bash
+python demo/app.py
+```
+
+Run evaluation:
+
+```bash
+python eval/run_eval.py
+```
+
+## 7. Evaluation
+
+Final eval artifact:
+- `memory_artifacts/eval/results.json`
+
+Labeling scheme:
+- UCSD binary `normal / anomaly`.
+- A frame is `anomaly` if a matching UCSD `*_gt` mask exists.
+- Otherwise it is `normal`.
+
+Eval slice:
+- Train slice size: `1000`
+- Test slice size: `200`
+- Classes: `normal`, `anomaly`
+- Label budgets are fractions of the train slice:
+  - `1%` -> `10` labels
+  - `10%` -> `100` labels
+
+### Results Table
+
+| Budget | Labels | Active Probe | Random Probe | Scratch CNN Baseline |
+|---:|---:|---:|---:|---:|
+| 1% | 10 | 0.500 | 0.650 | 0.590 |
+| 10% | 100 | 0.670 | 0.650 | 0.650 |
+
+Label counts:
+- 1% active: 6 normal, 4 anomaly
+- 1% random: 5 normal, 5 anomaly
+- 10% active: 47 normal, 53 anomaly
+- 10% random: 55 normal, 45 anomaly
+
+Primary claim:
+- At 1%, the active linear probe did **not** beat the scratch CNN:
+  `0.500` vs `0.590`.
+- At 10%, the active linear probe slightly beat the scratch CNN:
+  `0.670` vs `0.650`.
+
+Secondary claim:
+- At 1%, active sampling did **not** beat random sampling:
+  `0.500` vs `0.650`.
+- At 10%, active sampling slightly beat random sampling:
+  `0.670` vs `0.650`.
+
+Conclusion:
+- The results are mixed and preliminary. The 10% result supports the intended direction,
+  but the 1% result does not.
+
+### Agent Ablation
+
+Novelty detection accuracy on the labeled test slice:
+
+| Signal | Accuracy |
+|---|---:|
+| Structural only | 0.500 |
+| Semantic only | 0.500 |
+| Routine only | 0.405 |
+| All three fused | 0.405 |
+
+Interpretation:
+- Structural and semantic signals perform at chance on this binary UCSD slice.
+- Routine and all-three-fused are weaker here.
+- Because the Routine Agent uses a synthetic timestamp proxy tied to UCSD source naming,
+  these ablation numbers should not be over-interpreted as real temporal reasoning.
+
+## 8. Known Limitations
+
+- Dataset is UCSD Pedestrian fallback data, not the original porch-camera dataset.
+- Evaluation labels are binary normal/anomaly, not the planned
+  person/package/vehicle/animal/familiar classes.
+- Routine timestamps are synthetic and partially confounded with UCSD source naming.
+- Stored memory count is small in the current checked artifact state.
+- Pending-label UI cannot actually update prototypes/stats until an apply-label backend is
+  added.
+- The Hugging Face Space needs the tracked demo subset/artifacts pushed with Git LFS.
+- Results are small-scale and should be presented as a hackathon prototype, not a deployed
+  security product.
+
+## 9. Repo Structure
+
+```text
 recall/
 ├── PROJECT_STATE.md
 ├── README.md
+├── WALKTHROUGH.md
 ├── requirements.txt
-├── run.sh                      # one-command end-to-end run
-├── config.py                   # seed=42, paths, thresholds — single source of truth
+├── run.sh
+├── config.py
 ├── data/
-│   ├── raw/                    # staged footage
-│   ├── splits/                 # train/val/test manifests (fixed, seed=42)
-│   └── prepare_data.py         # frame extraction, split generation
+│   ├── raw/
+│   ├── frames/
+│   ├── frames_demo/
+│   ├── splits/
+│   └── prepare_data.py
 ├── agents/
-│   ├── structural_agent.py     # DINOv2 embed + prototype distance
-│   ├── semantic_agent.py       # CLIP embed + prototype distance
-│   └── routine_agent.py        # timestamp histogram / point process
+│   ├── structural_agent.py
+│   ├── semantic_agent.py
+│   └── routine_agent.py
 ├── coordinator/
-│   ├── fuse.py                 # agreement/disagreement logic
-│   └── active_learning.py      # uncertainty query -> label -> fold into prototypes
+│   ├── fuse.py
+│   └── active_learning.py
 ├── memory/
-│   ├── store.py                # write/read memories (embeddings, thumbnail, timestamp)
-│   └── retrieve.py             # CLIP-text query -> nearest-neighbor search
+│   ├── store.py
+│   └── retrieve.py
 ├── eval/
-│   ├── linear_probe.py         # frozen-embedding linear probe, active vs. random labels
-│   ├── baseline_cnn.py         # mandatory scratch-CNN baseline
-│   └── run_eval.py             # produces the results table + ablation numbers
+│   ├── linear_probe.py
+│   ├── baseline_cnn.py
+│   └── run_eval.py
 ├── demo/
-│   └── app.py                  # CLI or Gradio query demo
+│   └── app.py
+├── memory_artifacts/
 └── report/
-    └── report.md               # -> exported to PDF, ≤4 pages
+    └── report.md
 ```
 
-## 11. Hour-by-Hour Plan (8 hours)
+## 10. Hour-By-Hour Build Status
 
-| Hours | Work |
+| Hours | Status |
 |---|---|
-| 0–1 | Repo skeleton, `config.py` with `seed=42`, env setup, load DINOv2 + CLIP and confirm inference runs, stage/collect footage if not done already |
-| 1–2 | Structural Agent: frame embedding pipeline, prototype buffer, distance-based novelty score |
-| 2–3 | Semantic Agent: CLIP embedding, novelty score against familiar prototypes |
-| 3–4 | Routine Agent: timestamp histogram, novelty score by time-of-day; generate/label the high-motion "road" clip to sanity-check it does NOT fire on routine traffic |
-| 4–5 | Coordinator: fuse three scores, define agreement/disagreement + threshold, memory store (write on confident decisions) |
-| 5–6 | Retrieval: CLIP-text query encoder + nearest-neighbor search; minimal CLI/Gradio query demo |
-| 6–7 | Eval: label the small slice, run linear probe (active-sampled vs. random-sampled) vs. scratch-CNN baseline at 1%/10%; run the agent ablation |
-| 7–8 | Report (≤4 pages), record demo, clean repo, verify one-command reproducibility end-to-end, submit |
+| 0-1 | Repo scaffold, config, requirements, data prep, model smoke test, `run.sh` |
+| 1-2 | Structural Agent with frozen DINOv2 prototypes |
+| 2-3 | Semantic Agent with frozen CLIP image prototypes |
+| 3-4 | Routine Agent with synthetic UCSD hourly histogram |
+| 4-5 | Coordinator fusion, active-learning pending queue, memory store |
+| 5-6 | CLIP-text retrieval and minimal query demo |
+| 6-7 | Eval: linear probe, random probe, scratch CNN baseline, agent ablation |
+| 7-8+ | Gradio judge demo, walkthrough/docs, HF Space preparation |
 
-**If running behind**: cut explainability (stretch), cut the Gradio UI in favor of a CLI,
-cut the 10% label budget and only report 1% — but never cut the baseline comparison or the
-active-vs-random ablation; those are graded directly.
+## 11. Next Concrete Steps
 
-## 12. Open Decisions / Ask Before Assuming
-
-- Exact coordinator fusion rule (simple majority vs. weighted score threshold) — start with
-  majority vote, revisit only if time allows.
-- Exact size of the labeled eval slice — pick the smallest number that gives a stable
-  accuracy estimate (rough rule of thumb: at least ~10-15 examples per class in the test
-  split).
-- Whether to log routine-agent time buckets hourly or in finer granularity — start hourly.
-
----
+1. Push the Space-ready files and required demo artifacts to
+   `https://huggingface.co/spaces/itzrick/recall`.
+2. Record the demo using the walkthrough flow.
+3. Update/export `report/report.md` if the submission requires a PDF.
+4. Add a real apply-label backend after the hackathon if the active-learning UI needs to
+   become more than a proof of loop.

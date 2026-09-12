@@ -10,9 +10,9 @@ Recall employs three independent, unsupervised perception agents that score nove
 - **Semantic Agent**: Uses frozen CLIP to embed frames in joint image-text space; novelty is distance to semantic prototypes (category-level deviation).
 - **Routine Agent**: Learns a self-supervised hourly histogram of frame timestamps from training data; novelty is the inverse likelihood of the hour (temporal deviation).
 
-A Coordinator fuses the three scores via majority vote (≥2 agents agree → confident novel/familiar; split votes → disagreement → active learning request for a single human label). Confidently novel events are stored in memory (DINOv2 embedding, CLIP embedding, thumbnail, timestamp). Memory retrieval encodes a natural language query with CLIP text and returns the nearest neighbor by cosine similarity—pure retrieval, no generation.
+A Coordinator fuses the three scores with a conservative vote rule: unanimous agreement is treated as confident novel/familiar, while 2-1 split votes are treated as disagreement and routed to an active-learning request for a single human label. Confidently novel events are stored in memory (DINOv2 embedding, CLIP embedding, thumbnail, timestamp). Memory retrieval encodes a natural language query with CLIP text and returns the nearest neighbor by cosine similarity—pure retrieval, no generation.
 
-All components use fixed, pretrained weights (DINOv2, CLIP) and zero labels for agent training; only the active-learning loop incorporates human labels to update prototype banks.
+All upstream perception components use fixed, pretrained weights (DINOv2, CLIP) or zero-label statistics. The current active-learning loop records disagreement cases for human labeling; folding those labels back into prototypes is left as future backend work.
 
 ## Results
 We evaluate on a subset of the UCSD Pedestrian dataset (train/test split, seed=42), using binary labels derived from ground-truth masks (anomaly if mask exists, else normal). The label budget is fixed at 1% and 10% of the training slice (10 and 100 labels, respectively). We compare:
@@ -41,7 +41,7 @@ Agent ablation (novelty detection accuracy on test set, using Coordinator vote):
 | Routine only       | 0.405 |
 | All three fused    | 0.405 |
 
-The active‑learning probe matches or exceeds the baseline CNN at equal label budgets, and outperforms random sampling at the 10% budget. The structural and semantic agents individually achieve 0.500 accuracy, indicating they each capture complementary novelty signals; the routine agent adds temporal sensitivity but is confounded in this dataset by a synthetic timestamp proxy that aligns with the train/test split.
+The active-learning probe is mixed: it trails both the baseline CNN and random sampling at the 1% budget, but slightly exceeds both at the 10% budget. The structural and semantic agents individually achieve 0.500 accuracy on this binary slice, while the routine and fused variants reach 0.405; these ablation numbers should not be over-interpreted because the routine signal is confounded by the synthetic timestamp proxy.
 
 ## Limitations
 - **Dataset proxy**: Evaluation uses UCSD Pedestrian as a stand‑in for porch footage; the Routine Agent’s temporal model relies on a synthetic hour mapping (Train→day, Test→evening) that may conflate routine learning with the train/test split.
@@ -49,4 +49,4 @@ The active‑learning probe matches or exceeds the baseline CNN at equal label b
 - **Binary task**: The reduction to normal/anomaly discards fine‑grained categories (person, package, etc.) that would be relevant for real‑world deployment.
 - **Retrieval only**: The system returns the single most similar memory; it does not aggregate multiple memories or provide temporal bounds.
 
-Despite these limitations, Recall demonstrates that uncertainty‑driven active learning can yield label‑efficient novelty detection comparable to a fully supervised baseline, using only three lightweight, pretrained perception modules.
+Despite these limitations, Recall demonstrates a working end-to-end prototype for self-supervised novelty scoring, conservative coordinator disagreement routing, memory storage, and natural-language retrieval. The evaluation provides preliminary evidence at the 10% label budget, while the 1% result remains a negative result that should be reported plainly.
