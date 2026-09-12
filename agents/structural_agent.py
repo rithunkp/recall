@@ -51,6 +51,20 @@ def load_rgb_image(path: Path) -> Image.Image:
     return Image.open(path).convert("RGB")
 
 
+def resolve_frame_path(path: Path) -> Path:
+    """Resolve absolute or repo-relative frame paths."""
+    return path if path.is_absolute() else config.ROOT_DIR / path
+
+
+def display_frame_path(path: Path) -> str:
+    """Return a repo-relative frame path when possible."""
+    resolved = resolve_frame_path(path)
+    try:
+        return str(resolved.relative_to(config.ROOT_DIR))
+    except ValueError:
+        return str(resolved)
+
+
 def l2_normalize(array: np.ndarray) -> np.ndarray:
     """Normalize embeddings row-wise for cosine distance via dot product."""
     norms = np.linalg.norm(array, axis=1, keepdims=True)
@@ -95,10 +109,11 @@ class StructuralAgent:
 
     def score_frame(self, image_path: Path, prototypes: np.ndarray) -> NoveltyResult:
         """Embed and score one frame against stored prototypes."""
-        embedding = self.embed_images([image_path])[0]
+        resolved_path = resolve_frame_path(image_path)
+        embedding = self.embed_images([resolved_path])[0]
         distance = self.score_embedding(embedding, prototypes)
         return NoveltyResult(
-            frame_path=str(image_path.relative_to(config.ROOT_DIR)),
+            frame_path=display_frame_path(resolved_path),
             novelty_score=distance,
             is_novel=distance >= config.STRUCTURAL_NOVELTY_THRESHOLD,
             nearest_distance=distance,
