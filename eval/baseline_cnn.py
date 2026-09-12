@@ -74,8 +74,12 @@ def train_and_eval(
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
     loss_fn = nn.CrossEntropyLoss()
 
+    print(f"Training baseline CNN for {config.EVAL_CNN_EPOCHS} epochs...")
+    losses = []
     model.train()
-    for _ in range(config.EVAL_CNN_EPOCHS):
+    for epoch in range(config.EVAL_CNN_EPOCHS):
+        epoch_loss = 0.0
+        num_batches = 0
         for images, labels_tensor in train_loader:
             images = images.to(config.DEVICE)
             labels_tensor = labels_tensor.to(config.DEVICE)
@@ -83,6 +87,14 @@ def train_and_eval(
             loss = loss_fn(model(images), labels_tensor)
             loss.backward()
             optimizer.step()
+            epoch_loss += loss.item()
+            num_batches += 1
+        avg_epoch_loss = epoch_loss / num_batches if num_batches > 0 else 0.0
+        losses.append(avg_epoch_loss)
+        print(f"Epoch {epoch+1}/{config.EVAL_CNN_EPOCHS} - Average Loss: {avg_epoch_loss:.4f}")
+
+    # Check if loss decreased across epochs
+    loss_decreased = losses[-1] < losses[0] if len(losses) > 1 else True
 
     model.eval()
     correct = 0
@@ -93,4 +105,8 @@ def train_and_eval(
             predictions = logits.argmax(dim=1).cpu()
             correct += int((predictions == labels_tensor).sum())
             total += int(labels_tensor.numel())
-    return correct / total if total else 0.0
+
+    accuracy = correct / total if total else 0.0
+    print(f"Baseline CNN accuracy: {accuracy:.4f}")
+    print(f"Loss curve check: {'LOSS DECREASED - model learning' if loss_decreased else 'LOSS NON-DECREASING - possible non-learning'}")
+    return accuracy

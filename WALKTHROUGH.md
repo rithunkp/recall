@@ -103,9 +103,11 @@ The following results were obtained from the final evaluation run (as recorded i
 ## Demo script
 For the recorded demo session, follow this exact sequence:
 
-1. **Start the demo application**: Launch `python demo/app.py` and wait for the Gradio interface to load
-2. **Go to the Ask tab**: Click on the "3. Ask" tab to access the query interface
-3. **Ask a contextual question**: Type "pedestrians walking on a walkway" into the question box and press Enter
-4. **Observe the retrieval result**: The system should return a templated answer indicating a memory match with its associated synthetic timestamp (e.g., "Event detected at hour 10")
-5. **Test a negative case**: Type "a bright red sports car parked indoors" to verify the system returns "No matching event found." when similarity falls below threshold
-6. **Check boundary case**: Try "something happening outside" to see a response near the similarity threshold (0.20)
+1. **Start the demo application**: Launch `python demo/app.py` and wait for the Gradio interface to load.
+2. **Build memory once**: On the Scan tab, click **Build Recall's Memory**. The app scans the configured demo dataset subset, streams progress, and shows running Familiar / Ambiguous / Novel counts.
+3. **Use Ask as the main product flow**: After the scan completes, use the Ask tab from then on. On later launches, the app detects the completed scan marker and opens with Ask first instead of making you rescan.
+4. **Ask a contextual question**: Type "pedestrians walking on a walkway" into the question box and press Enter.
+5. **Observe the retrieval result**: The system returns the fixed templated answer from `memory/retrieve.py`, including the similarity score, timestamp/synthetic hour, frame reference, and thumbnail reference.
+6. **Check Memories**: Open Memories to see stored thumbnails. The most recent Ask match is flagged as "Last matched."
+7. **Review Pending Labels**: Open Pending Labels to show the 2-1 coordinator disagreements queued for human labeling.
+8. **Test a negative case**: Type "a bright red sports car parked indoors" to verify the system returns "No matching event found." when similarity falls below threshold.

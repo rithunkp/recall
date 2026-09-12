@@ -71,11 +71,11 @@ def fuse_scores(
 
 
 def decide(scores: AgentScores, frame_path: str, memory_id: str | None = None) -> CoordinatorDecision:
-    """Fuse agent votes; unanimous decisions are confident, split votes are ambiguous."""
+    """Fuse agent votes; 2/3 or 3/3 novel votes = confident novel, 0/3 or 1/3 novel = confident familiar."""
     votes = [scores.structural_vote, scores.semantic_vote, scores.routine_vote]
     novel_votes = sum(votes)
     familiar_votes = len(votes) - novel_votes
-    if novel_votes == len(votes):
+    if novel_votes >= config.COORDINATOR_MIN_VOTES:
         return CoordinatorDecision(
             frame_path=frame_path,
             decision="novel",
@@ -86,23 +86,12 @@ def decide(scores: AgentScores, frame_path: str, memory_id: str | None = None) -
             scores=scores,
             memory_id=memory_id,
         )
-    if familiar_votes == len(votes):
-        return CoordinatorDecision(
-            frame_path=frame_path,
-            decision="familiar",
-            is_confident=True,
-            is_novel=False,
-            novel_votes=novel_votes,
-            familiar_votes=familiar_votes,
-            scores=scores,
-            memory_id=None,
-        )
-    majority = "novel" if novel_votes >= config.COORDINATOR_MIN_VOTES else "familiar"
+    # 0 or 1 novel votes → confident familiar
     return CoordinatorDecision(
         frame_path=frame_path,
-        decision=f"ambiguous_majority_{majority}",
-        is_confident=False,
-        is_novel=None,
+        decision="familiar",
+        is_confident=True,
+        is_novel=False,
         novel_votes=novel_votes,
         familiar_votes=familiar_votes,
         scores=scores,
