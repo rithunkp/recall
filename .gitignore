@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.uv-cache/
+data/frames/
+memory_artifacts/
