@@ -1,0 +1,79 @@
+"""Project-wide configuration for Recall.
+
+All modules import seeds, paths, model IDs, thresholds, and split settings from
+this file. Keep this small and explicit for the hackathon build.
+"""
+
+from __future__ import annotations
+
+import random
+from pathlib import Path
+
+
+SEED = 42
+
+ROOT_DIR = Path(__file__).resolve().parent
+DATA_DIR = ROOT_DIR / "data"
+RAW_DATA_DIR = DATA_DIR / "raw"
+FRAMES_DIR = DATA_DIR / "frames"
+SPLITS_DIR = DATA_DIR / "splits"
+TRAIN_MANIFEST = SPLITS_DIR / "train.jsonl"
+VAL_MANIFEST = SPLITS_DIR / "val.jsonl"
+TEST_MANIFEST = SPLITS_DIR / "test.jsonl"
+
+MEMORY_DIR = ROOT_DIR / "memory_artifacts"
+EMBEDDINGS_DIR = MEMORY_DIR / "embeddings"
+THUMBNAILS_DIR = MEMORY_DIR / "thumbnails"
+
+REPORT_DIR = ROOT_DIR / "report"
+
+VIDEO_EXTENSIONS = (".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v")
+IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff")
+FRAME_EXTENSIONS = IMAGE_EXTENSIONS
+FRAME_STRIDE = 30
+FRAME_IMAGE_EXT = ".jpg"
+STRUCTURAL_EMBEDDINGS_DIR = EMBEDDINGS_DIR / "structural"
+STRUCTURAL_PROTOTYPES_PATH = STRUCTURAL_EMBEDDINGS_DIR / "prototypes.npy"
+STRUCTURAL_BATCH_SIZE = 8
+STRUCTURAL_MAX_PROTOTYPES = 256
+
+TRAIN_RATIO = 0.70
+VAL_RATIO = 0.15
+TEST_RATIO = 0.15
+
+def _torch_cuda_available() -> bool:
+    """Return CUDA availability without making config import depend on PyTorch."""
+    try:
+        import torch
+    except ModuleNotFoundError:
+        return False
+    return bool(torch.cuda.is_available())
+
+
+DEVICE = "cuda" if _torch_cuda_available() else "cpu"
+DINO_MODEL_NAME = "facebook/dinov2-small"
+CLIP_MODEL_NAME = "openai/clip-vit-base-patch32"
+
+STRUCTURAL_NOVELTY_THRESHOLD = 0.35
+SEMANTIC_NOVELTY_THRESHOLD = 0.35
+ROUTINE_NOVELTY_THRESHOLD = 0.50
+COORDINATOR_MIN_VOTES = 2
+
+
+def set_seed(seed: int = SEED) -> None:
+    """Seed Python, NumPy, and PyTorch for reproducible hackathon runs."""
+    random.seed(seed)
+    try:
+        import numpy as np
+
+        np.random.seed(seed)
+    except ModuleNotFoundError:
+        pass
+    try:
+        import torch
+
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+    except ModuleNotFoundError:
+        pass
