@@ -6,6 +6,7 @@ this file. Keep this small and explicit for the hackathon build.
 
 from __future__ import annotations
 
+import os
 import random
 from pathlib import Path
 
@@ -15,11 +16,18 @@ SEED = 42
 ROOT_DIR = Path(__file__).resolve().parent
 DATA_DIR = ROOT_DIR / "data"
 RAW_DATA_DIR = DATA_DIR / "raw"
-FRAMES_DIR = DATA_DIR / "frames"
-SPLITS_DIR = DATA_DIR / "splits"
-TRAIN_MANIFEST = SPLITS_DIR / "train.jsonl"
+# Use demo dataset if environment variable is set (for deployment)
+if os.environ.get("RECALL_USE_DEMO_DATASET"):
+    FRAMES_DIR = DATA_DIR / "frames_demo"
+    SPLITS_DIR = DATA_DIR / "splits"
+    TRAIN_MANIFEST = SPLITS_DIR / "train_demo.jsonl"
+    TEST_MANIFEST = SPLITS_DIR / "test_demo.jsonl"
+else:
+    FRAMES_DIR = DATA_DIR / "frames"
+    SPLITS_DIR = DATA_DIR / "splits"
+    TRAIN_MANIFEST = SPLITS_DIR / "train.jsonl"
+    TEST_MANIFEST = SPLITS_DIR / "test.jsonl"
 VAL_MANIFEST = SPLITS_DIR / "val.jsonl"
-TEST_MANIFEST = SPLITS_DIR / "test.jsonl"
 
 MEMORY_DIR = ROOT_DIR / "memory_artifacts"
 EMBEDDINGS_DIR = MEMORY_DIR / "embeddings"

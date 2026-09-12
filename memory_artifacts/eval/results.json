@@ -1,0 +1,48 @@
+{
+  "ablation_accuracy": {
+    "all_three_fused": 0.405,
+    "routine_only": 0.405,
+    "semantic_only": 0.5,
+    "structural_only": 0.5
+  },
+  "class_set": [
+    "normal",
+    "anomaly"
+  ],
+  "labeling_scheme": "UCSD binary normal/anomaly: anomaly if matching *_gt mask exists; otherwise normal.",
+  "results": [
+    {
+      "active_label_counts": {
+        "anomaly": 4,
+        "normal": 6
+      },
+      "active_probe_accuracy": 0.5,
+      "baseline_cnn_accuracy": 0.59,
+      "budget_fraction_of_train_slice": 0.01,
+      "label_count": 10,
+      "random_label_counts": {
+        "anomaly": 5,
+        "normal": 5
+      },
+      "random_probe_accuracy": 0.65
+    },
+    {
+      "active_label_counts": {
+        "anomaly": 53,
+        "normal": 47
+      },
+      "active_probe_accuracy": 0.67,
+      "baseline_cnn_accuracy": 0.65,
+      "budget_fraction_of_train_slice": 0.1,
+      "label_count": 100,
+      "random_label_counts": {
+        "anomaly": 45,
+        "normal": 55
+      },
+      "random_probe_accuracy": 0.65
+    }
+  ],
+  "routine_confound_note": "Synthetic UCSD time proxy maps TestNNN sources to evening, so routine signal is confounded with source split naming.",
+  "test_slice_size": 200,
+  "train_slice_size": 1000
+}
