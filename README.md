@@ -1,8 +1,6 @@
 ---
 title: Recall
 emoji: 🎥
-colorFrom: gray
-colorTo: orange
 sdk: gradio
 sdk_version: 6.27.0
 app_file: demo/app.py
