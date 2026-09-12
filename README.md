@@ -1,4 +1,13 @@
-
+---
+title: Recall
+emoji: 🎥
+colorFrom: gray
+colorTo: red
+sdk: gradio
+sdk_version: "4.44.0"
+app_file: demo/app.py
+pinned: false
+---
 
 # Recall
 
