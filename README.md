@@ -3,7 +3,7 @@ title: Recall
 emoji: 🎥
 colorFrom: gray
 colorTo: red
-sdk: gradio
+sdk: gradio==5.9.1
 sdk_version: "5.9.1"
 app_file: demo/app.py
 pinned: false
